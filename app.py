@@ -3,9 +3,16 @@ import yfinance as yf
 import pandas as pd
 import plotly.express as px
 
+# 🔥 PAGE CONFIG
+st.set_page_config(
+    page_title="AI Stock Scanner Pro",
+    page_icon="📈",
+    layout="wide"
+)
+
 st.title("🚀 AI Stock Scanner Pro (India)")
 
-# 🔥 Expanded stock list (mini NIFTY set)
+# 🔥 STOCK LIST (Expanded)
 stocks = [
     "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
     "ITC.NS","LT.NS","SBIN.NS","AXISBANK.NS","WIPRO.NS",
@@ -14,8 +21,6 @@ stocks = [
 ]
 
 results = []
-
-st.write("🔍 Scanning market...")
 
 # 🔥 RSI FUNCTION
 def calculate_rsi(data, window=14):
@@ -31,65 +36,103 @@ def calculate_rsi(data, window=14):
 
     return rsi
 
-# 🔁 SCAN LOOP
-for stock in stocks:
-    try:
-        data = yf.download(stock, period="3mo", progress=False)
+# 🤖 AI TREND FUNCTION
+def ai_prediction(data):
+    short_ma = data["Close"].rolling(5).mean().iloc[-1]
+    long_ma = data["Close"].rolling(20).mean().iloc[-1]
+    rsi = data["RSI"].iloc[-1]
 
-        if data.empty:
-            continue
+    if short_ma > long_ma and rsi < 65:
+        return "📈 Strong Uptrend"
+    elif short_ma > long_ma:
+        return "⚠️ Mild Uptrend"
+    else:
+        return "📉 Weak Trend"
 
-        # Fix columns
-        if hasattr(data.columns, "levels"):
-            data.columns = data.columns.get_level_values(0)
+# 🔄 SCAN WITH SPINNER (UI FIX)
+with st.spinner("🔍 Scanning market for opportunities..."):
 
-        data["Close"] = data["Close"].astype(float)
-        data["Volume"] = data["Volume"].astype(float)
+    for stock in stocks:
+        try:
+            data = yf.download(stock, period="3mo", progress=False)
 
-        # Indicators
-        data["20D_High"] = data["Close"].rolling(20).max()
-        data["Avg_Volume"] = data["Volume"].rolling(20).mean()
-        data["RSI"] = calculate_rsi(data)
+            if data.empty:
+                continue
 
-        latest_close = data["Close"].iloc[-1]
-        latest_high = data["20D_High"].iloc[-1]
-        latest_volume = data["Volume"].iloc[-1]
-        avg_volume = data["Avg_Volume"].iloc[-1]
-        latest_rsi = data["RSI"].iloc[-1]
+            # Fix multi-index issue
+            if hasattr(data.columns, "levels"):
+                data.columns = data.columns.get_level_values(0)
 
-        # 🎯 SMART SIGNAL
-        if (
-            latest_close >= latest_high and
-            latest_volume > 1.5 * avg_volume and
-            latest_rsi < 70
-        ):
-            signal = "🚀 Strong Buy"
-        elif latest_close >= 0.95 * latest_high and latest_rsi < 65:
-            signal = "⚡ Watchlist"
-        else:
-            signal = None
+            data["Close"] = data["Close"].astype(float)
+            data["Volume"] = data["Volume"].astype(float)
 
-        if signal:
+            # Indicators
+            data["20D_High"] = data["Close"].rolling(20).max()
+            data["Avg_Volume"] = data["Volume"].rolling(20).mean()
+            data["RSI"] = calculate_rsi(data)
+
+            latest_close = data["Close"].iloc[-1]
+            latest_high = data["20D_High"].iloc[-1]
+            latest_volume = data["Volume"].iloc[-1]
+            avg_volume = data["Avg_Volume"].iloc[-1]
+            latest_rsi = data["RSI"].iloc[-1]
+
+            # 🎯 SMART SIGNAL (RELAXED LOGIC)
+            if (
+                latest_close >= 0.98 * latest_high and
+                latest_volume > 1.2 * avg_volume and
+                latest_rsi < 65
+            ):
+                signal = "🚀 Strong Buy"
+
+            elif (
+                latest_close >= 0.95 * latest_high and
+                latest_rsi < 70
+            ):
+                signal = "⚡ Watchlist"
+
+            else:
+                signal = "📊 Trending"
+
+            prediction = ai_prediction(data)
+
             results.append({
                 "Stock": stock,
                 "Price": round(latest_close, 2),
                 "RSI": round(latest_rsi, 1),
                 "Volume": int(latest_volume),
-                "Signal": signal
+                "Signal": signal,
+                "AI View": prediction
             })
 
-    except:
-        continue
+        except:
+            continue
 
-# 📊 SHOW RESULTS
-st.subheader("📊 Opportunities")
+# ✅ SCAN COMPLETE MESSAGE
+st.success(f"✅ Scan Complete: {len(results)} stocks analyzed")
 
-if results:
-    df = pd.DataFrame(results)
-    st.dataframe(df)
+# 📊 DATAFRAME
+df = pd.DataFrame(results)
 
-    # 🔥 SELECT STOCK FOR CHART
-    selected_stock = st.selectbox("📈 View Chart", df["Stock"])
+# 🔥 SORT (BEST FIRST)
+df = df.sort_values(by="RSI")
+
+# 📊 METRICS
+col1, col2 = st.columns(2)
+col1.metric("📊 Stocks Scanned", len(stocks))
+col2.metric("🎯 Opportunities Found", len(df[df["Signal"] != "📊 Trending"]))
+
+# 📊 LAYOUT
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.subheader("📊 Market Opportunities")
+    st.dataframe(df, use_container_width=True)
+
+with col2:
+    st.subheader("📈 Stock Chart")
+
+    selected_stock = st.selectbox("Select Stock", df["Stock"])
 
     chart_data = yf.download(selected_stock, period="3mo")
 
@@ -100,6 +143,3 @@ if results:
 
     fig = px.line(chart_data, x="Date", y="Close", title=selected_stock)
     st.plotly_chart(fig, use_container_width=True)
-
-else:
-    st.warning("No strong opportunities found today.")
